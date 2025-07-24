@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
+import { getOpenAIMove } from './openaiTicTacToe';
 
 /**
  * Color variables (see App.css) for theme:
@@ -76,6 +77,7 @@ function TicTacToeGame() {
   const [winner, setWinner] = useState(null);
   const [score, setScore] = useState({X: 0, O: 0});
   const [showBoard, setShowBoard] = useState(false);
+  const [aiThinking, setAiThinking] = useState(false);
 
   // For responsive winner display and to prevent multiple effect calls
   useEffect(() => {
@@ -86,10 +88,14 @@ function TicTacToeGame() {
     } else if (isBoardFull(squares)) {
       setStatus("It's a draw!");
     } else if (mode) {
-      setStatus(`${xIsNext ? 'X' : 'O'}'s turn`);
+      if (mode === "ai" && aiThinking) {
+        setStatus("AI is thinking...");
+      } else {
+        setStatus(`${xIsNext ? 'X' : 'O'}'s turn`);
+      }
     }
-  // eslint-disable-next-line
-  }, [squares, mode]);
+    // eslint-disable-next-line
+  }, [squares, mode, aiThinking]);
 
   // Tally score when winner found
   useEffect(() => {
@@ -102,28 +108,44 @@ function TicTacToeGame() {
     // eslint-disable-next-line
   }, [winner]);
 
-  // AI move when it's AI's turn
+  // AI move when it's AI's turn - REWRITTEN TO CALL OpenAI
   useEffect(() => {
     if (mode === "ai" && !winner && showBoard && !xIsNext) {
-      // delay for visual effect
-      const timeout = setTimeout(() => {
-        const idx = getAIMove(squares);
-        if (idx !== null && squares[idx] === null) {
-          handleSquareClick(idx);
+      setAiThinking(true);
+      // Use OpenAI to get AI move
+      (async () => {
+        let idx = null;
+        try {
+          idx = await getOpenAIMove(squares);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error("OpenAI call failed (fallback to built-in AI):", e);
         }
-      }, 550);
-      return () => clearTimeout(timeout);
+        if (idx === null || squares[idx] !== null) {
+          // fallback to local AI if OpenAI fails
+          idx = getAIMove(squares);
+        }
+        setTimeout(() => {
+          if (typeof idx === "number" && squares[idx] === null && !winner) {
+            // check again before making the move
+            handleSquareClick(idx, true);
+          }
+          setAiThinking(false);
+        }, 420); // lets UI update after thinking
+      })();
     }
     // eslint-disable-next-line
   }, [xIsNext, winner, mode, showBoard]);
 
   // PUBLIC_INTERFACE
-  function handleSquareClick(i) {
+  function handleSquareClick(i, isAI = false) {
     /**
      * Handles click on a square; ignores if not playable.
+     * If isAI is true, allows "O" (AI) to play even if not xIsNext.
      */
     if (winner || squares[i]) return;
-    if (mode === "ai" && !xIsNext) return; // disable human as O vs ai
+    if (mode === "ai" && !xIsNext && !isAI) return; // disable human as O vs ai
+    if (mode === "ai" && xIsNext && isAI) return;   // don't allow AI as X
     setSquares((sqrs) => {
       const next = [...sqrs];
       next[i] = xIsNext ? 'X' : 'O';
@@ -266,7 +288,19 @@ function TicTacToeGame() {
                   fontWeight: winner ? 700 : 400,
                   transition: 'background 0.2s'
                 }}>
-                {status}
+                {status}{mode === "ai" && aiThinking && !winner && (
+                  <span style={{ marginLeft: 8, color: 'var(--accent,#ffca28)', fontStyle:'italic' }}>
+                    <span className="ai-dot" style={{
+                      display: 'inline-block',
+                      width: 8, height: 8,
+                      borderRadius: 8,
+                      background: 'var(--accent,#ffca28)',
+                      marginRight: 4,
+                      animation: 'ai-blink 0.95s infinite alternate'
+                    }}></span>
+                    AI is thinking...
+                  </span>
+                )}
               </span>
             </div>
             {/* Board */}
